@@ -6,9 +6,7 @@ Source:
 
 Vendored files:
 - `include/ggml.h`
-- `include/gguf.h`
 - `include/ggml-cpu.h`
-- `include/ggml-backend.h`
 - `src/ggml-common.h`
 - `src/ggml-impl.h`
 - `src/ggml-quants.h`

@@ -3,8 +3,6 @@
 // GGML internal header
 
 #include "ggml.h"
-#include "gguf.h"
-
 #include <assert.h>
 #include <math.h>
 #include <stdlib.h> // load `stdlib.h` before other headers to work around MinGW bug: https://sourceforge.net/p/mingw-w64/bugs/192/
@@ -742,7 +740,6 @@ static inline bool ggml_can_fuse_subgraph(const struct ggml_cgraph * cgraph,
 #ifdef __cplusplus
 #include <array>
 #include <initializer_list>
-#include <vector>
 
 // nicer C++ syntax for ggml_can_fuse
 inline bool ggml_can_fuse(const struct ggml_cgraph * cgraph, int node_idx, std::initializer_list<enum ggml_op> ops) {
@@ -771,7 +768,4 @@ inline bool ggml_check_edges(const struct ggml_cgraph *                cgraph,
     return true;
 }
 
-// expose GGUF internals for test code
-GGML_API size_t gguf_type_size(enum gguf_type type);
-GGML_API void gguf_write_to_buf(const struct gguf_context * ctx, std::vector<int8_t> & buf, bool only_meta);
 #endif // __cplusplus
