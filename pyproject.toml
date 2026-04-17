@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=77.0.3,<81.0.0", "wheel", "torch"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gguf_kernels"
+version = "0.1.0
+description = ""
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gguf_kernels*"]
