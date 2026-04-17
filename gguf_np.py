@@ -1,98 +1,19 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Sequence, IntEnum
+from typing import Any, Callable, Sequence
 from math import log2, ceil
 
 from numpy.typing import DTypeLike
 
 import numpy as np
-
-
-class GGMLQuantizationType(IntEnum):
-    F32     = 0
-    F16     = 1
-    Q4_0    = 2
-    Q4_1    = 3
-    Q5_0    = 6
-    Q5_1    = 7
-    Q8_0    = 8
-    Q8_1    = 9
-    Q2_K    = 10
-    Q3_K    = 11
-    Q4_K    = 12
-    Q5_K    = 13
-    Q6_K    = 14
-    Q8_K    = 15
-    IQ2_XXS = 16
-    IQ2_XS  = 17
-    IQ3_XXS = 18
-    IQ1_S   = 19
-    IQ4_NL  = 20
-    IQ3_S   = 21
-    IQ2_S   = 22
-    IQ4_XS  = 23
-    I8      = 24
-    I16     = 25
-    I32     = 26
-    I64     = 27
-    F64     = 28
-    IQ1_M   = 29
-    BF16    = 30
-    TQ1_0   = 34
-    TQ2_0   = 35
-    MXFP4   = 39
-
-
-# Items here are (block size, type size)
-QK_K = 256
-GGML_QUANT_SIZES: dict[GGMLQuantizationType, tuple[int, int]] = {
-    GGMLQuantizationType.F32:     (1, 4),
-    GGMLQuantizationType.F16:     (1, 2),
-    GGMLQuantizationType.Q4_0:    (32, 2 + 16),
-    GGMLQuantizationType.Q4_1:    (32, 2 + 2 + 16),
-    GGMLQuantizationType.Q5_0:    (32, 2 + 4 + 16),
-    GGMLQuantizationType.Q5_1:    (32, 2 + 2 + 4 + 16),
-    GGMLQuantizationType.Q8_0:    (32, 2 + 32),
-    GGMLQuantizationType.Q8_1:    (32, 4 + 4 + 32),
-    GGMLQuantizationType.Q2_K:    (256, 2 + 2 + QK_K // 16 + QK_K // 4),
-    GGMLQuantizationType.Q3_K:    (256, 2 + QK_K // 4 + QK_K // 8 + 12),
-    GGMLQuantizationType.Q4_K:    (256, 2 + 2 + QK_K // 2 + 12),
-    GGMLQuantizationType.Q5_K:    (256, 2 + 2 + QK_K // 2 + QK_K // 8 + 12),
-    GGMLQuantizationType.Q6_K:    (256, 2 + QK_K // 2 + QK_K // 4 + QK_K // 16),
-    GGMLQuantizationType.Q8_K:    (256, 4 + QK_K + QK_K // 8),
-    GGMLQuantizationType.IQ2_XXS: (256, 2 + QK_K // 4),
-    GGMLQuantizationType.IQ2_XS:  (256, 2 + QK_K // 4 + QK_K // 32),
-    GGMLQuantizationType.IQ3_XXS: (256, 2 + QK_K // 4 + QK_K // 8),
-    GGMLQuantizationType.IQ1_S:   (256, 2 + QK_K // 8 + QK_K // 16),
-    GGMLQuantizationType.IQ4_NL:  (32, 2 + 16),
-    GGMLQuantizationType.IQ3_S:   (256, 2 + QK_K // 4 + QK_K // 8 + QK_K // 32 + 4),
-    GGMLQuantizationType.IQ2_S:   (256, 2 + QK_K // 4 + QK_K // 16),
-    GGMLQuantizationType.IQ4_XS:  (256, 2 + 2 + QK_K // 2 + QK_K // 64),
-    GGMLQuantizationType.I8:      (1, 1),
-    GGMLQuantizationType.I16:     (1, 2),
-    GGMLQuantizationType.I32:     (1, 4),
-    GGMLQuantizationType.I64:     (1, 8),
-    GGMLQuantizationType.F64:     (1, 8),
-    GGMLQuantizationType.IQ1_M:   (256, QK_K // 8 + QK_K // 16  + QK_K // 32),
-    GGMLQuantizationType.BF16:    (1, 2),
-    GGMLQuantizationType.TQ1_0:   (256, 2 + 4 * 13),
-    GGMLQuantizationType.TQ2_0:   (256, 2 + 64),
-    GGMLQuantizationType.MXFP4:   (32, 1 + 16),
-}
-
-
-def quant_shape_to_byte_shape(shape: Sequence[int], quant_type: GGMLQuantizationType) -> tuple[int, ...]:
-    block_size, type_size = GGML_QUANT_SIZES[quant_type]
-    if shape[-1] % block_size != 0:
-        raise ValueError(f"Quantized tensor row size ({shape[-1]}) is not a multiple of {quant_type.name} block size ({block_size})")
-    return (*shape[:-1], shape[-1] // block_size * type_size)
-
-
-def quant_shape_from_byte_shape(shape: Sequence[int], quant_type: GGMLQuantizationType) -> tuple[int, ...]:
-    block_size, type_size = GGML_QUANT_SIZES[quant_type]
-    if shape[-1] % type_size != 0:
-        raise ValueError(f"Quantized tensor bytes per row ({shape[-1]}) is not a multiple of {quant_type.name} type size ({type_size})")
-    return (*shape[:-1], shape[-1] // type_size * block_size)
+from gguf_kernels.formats import (
+    GGML_QUANT_SIZES,
+    QK_K,
+    GGMLQuantizationType,
+    quant_shape_from_byte_shape,
+    quant_shape_to_byte_shape,
+)
+from gguf_kernels.ggml_ref import quantize_rows_with_ggml
 
 
 # This is faster than np.vectorize and np.apply_along_axis because it works on more than one row at a time
@@ -121,6 +42,10 @@ class QuantError(Exception): ...
 
 
 _type_traits: dict[GGMLQuantizationType, type[__Quant]] = {}
+
+
+def _quantize_blocks_with_ggml(blocks: np.ndarray, qtype: GGMLQuantizationType) -> np.ndarray:
+    return quantize_rows_with_ggml(blocks, qtype)
 
 
 def quantize(data: np.ndarray, qtype: GGMLQuantizationType) -> np.ndarray:
@@ -263,6 +188,33 @@ class BF16(__Quant, qtype=GGMLQuantizationType.BF16):
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         return (blocks.view(np.int16).astype(np.int32) << 16).view(np.float32)
+
+
+class Q1_0(__Quant, qtype=GGMLQuantizationType.Q1_0):
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        n_blocks = blocks.shape[0]
+
+        d = np.mean(np.abs(blocks), axis=-1, keepdims=True).astype(np.float16).view(np.uint8)
+
+        signs = (blocks >= 0).astype(np.uint8).reshape((n_blocks, cls.block_size // 8, 8))
+        shifts = np.array([i for i in range(8)], dtype=np.uint8).reshape((1, 1, 8))
+        qs = np.sum(signs << shifts, axis=-1, dtype=np.uint8)
+
+        return np.concatenate([d, qs], axis=-1)
+
+    @classmethod
+    def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        n_blocks = blocks.shape[0]
+
+        d, qs = np.hsplit(blocks, [2])
+        d = d.view(np.float16).astype(np.float32)
+
+        bits = qs.reshape((n_blocks, cls.block_size // 8, 1)) >> np.array([i for i in range(8)], dtype=np.uint8).reshape((1, 1, 8))
+        bits = (bits & np.uint8(0x01)).reshape((n_blocks, cls.block_size))
+        values = np.where(bits != 0, d, -d)
+
+        return values.astype(np.float32)
 
 
 class Q4_0(__Quant, qtype=GGMLQuantizationType.Q4_0):
@@ -451,6 +403,10 @@ class Q8_0(__Quant, qtype=GGMLQuantizationType.Q8_0):
 
 class Q2_K(__Quant, qtype=GGMLQuantizationType.Q2_K):
     @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+
+    @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         n_blocks = blocks.shape[0]
 
@@ -477,6 +433,10 @@ class Q2_K(__Quant, qtype=GGMLQuantizationType.Q2_K):
 
 
 class Q3_K(__Quant, qtype=GGMLQuantizationType.Q3_K):
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         n_blocks = blocks.shape[0]
@@ -549,6 +509,10 @@ class Q4_K(__Quant, qtype=GGMLQuantizationType.Q4_K):
         return (sc.reshape((n_blocks, 8)), min.reshape((n_blocks, 8)))
 
     @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+
+    @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         n_blocks = blocks.shape[0]
 
@@ -571,6 +535,10 @@ class Q4_K(__Quant, qtype=GGMLQuantizationType.Q4_K):
 
 
 class Q5_K(__Quant, qtype=GGMLQuantizationType.Q5_K):
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         n_blocks = blocks.shape[0]
@@ -598,6 +566,10 @@ class Q5_K(__Quant, qtype=GGMLQuantizationType.Q5_K):
 
 
 class Q6_K(__Quant, qtype=GGMLQuantizationType.Q6_K):
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         n_blocks = blocks.shape[0]
@@ -752,6 +724,95 @@ class MXFP4(__Quant, qtype=GGMLQuantizationType.MXFP4):
         return (d * qs.astype(np.float32))
 
 
+class NVFP4(__Quant, qtype=GGMLQuantizationType.NVFP4):
+    # E2M1 values doubled, matching the GGML reference kvalue convention.
+    kvalues = (0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12)
+
+    @staticmethod
+    def ue4m3_to_fp32(x: np.ndarray) -> np.ndarray:
+        exp = (x >> np.uint8(3)).astype(np.int32) & 0xF
+        man = (x & np.uint8(0x07)).astype(np.float32)
+        raw = np.where(
+            exp == 0,
+            man * np.float32(2**-9),
+            (1.0 + man / 8.0) * np.float32(2.0) ** (exp.astype(np.float32) - 7.0),
+        )
+        return np.where((x == 0) | (x == 0x7F), 0.0, raw * 0.5)
+
+    @staticmethod
+    def fp32_to_ue4m3(x: np.ndarray) -> np.ndarray:
+        x = np.clip(x, 0.0, 448.0).astype(np.float32)
+        bits = x.view(np.uint32)
+        fp32_exp = ((bits >> np.uint32(23)) & np.uint32(0xFF)).astype(np.int32) - 127
+        fp32_man = ((bits >> np.uint32(20)) & np.uint32(0x07)).astype(np.int32)
+        ue4m3_exp = fp32_exp + 7
+
+        sub_man = np.clip((x * 512.0 + 0.5).astype(np.int32), 0, 7)
+        sub_result = np.where(sub_man >= 1, sub_man, 0).astype(np.uint8)
+
+        round_bit = ((bits >> np.uint32(19)) & np.uint32(1)).astype(np.int32)
+        man = fp32_man + round_bit
+        exp = ue4m3_exp.copy()
+        overflow = man > 7
+        man = np.where(overflow, 0, man)
+        exp = np.where(overflow, exp + 1, exp)
+        normal_result = np.where(
+            exp >= 15,
+            np.uint8(0x7E),
+            ((exp << 3) | man).astype(np.uint8),
+        )
+
+        return np.where(
+            x <= 0.0,
+            np.uint8(0),
+            np.where(
+                ue4m3_exp <= 0,
+                sub_result,
+                np.where(ue4m3_exp >= 15, np.uint8(0x7E), normal_result),
+            ),
+        )
+
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        n_super = blocks.shape[0]
+
+        blocks = blocks.reshape((n_super, 4, 16))
+        d = abs(blocks).max(axis=-1) / np.float32(6.0)
+        d_bytes = cls.fp32_to_ue4m3(d)
+        d_fp = cls.ue4m3_to_fp32(d_bytes).reshape((n_super, 4, 1))
+
+        kvalues = np.array(cls.kvalues, dtype=np.int8).reshape((1, 1, 16))
+        errs = np.abs(
+            d_fp.reshape((n_super, 4, 1, 1))
+            * kvalues.astype(np.float32).reshape((1, 1, 1, 16))
+            - blocks.reshape((n_super, 4, 16, 1))
+        )
+        best = np.argmin(errs, axis=-1).astype(np.uint8)
+
+        lo = best[..., :8]
+        hi = best[..., 8:] << np.uint8(4)
+        qs = (lo | hi).reshape((n_super, 32))
+
+        return np.concatenate([d_bytes, qs], axis=-1)
+
+    @classmethod
+    def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        n_super = blocks.shape[0]
+
+        d_bytes, qs = np.hsplit(blocks, [4])
+        d = cls.ue4m3_to_fp32(d_bytes).reshape((n_super, 4, 1))
+
+        qs = qs.reshape((n_super, 4, 8))
+        lo = (qs & np.uint8(0x0F)).view(np.int8)
+        hi = (qs >> np.uint8(4)).view(np.int8)
+        vals = np.concatenate([lo, hi], axis=-1)
+
+        kvalues = np.array(cls.kvalues, dtype=np.int8).reshape((1, 1, 16))
+        vals = np.take_along_axis(kvalues, vals, axis=-1)
+
+        return (d * vals.astype(np.float32)).reshape((n_super, cls.block_size))
+
+
 class IQ2_XXS(__Quant, qtype=GGMLQuantizationType.IQ2_XXS):
     ksigns: bytes = (
         b"\x00\x81\x82\x03\x84\x05\x06\x87\x88\x09\x0a\x8b\x0c\x8d\x8e\x0f"
@@ -786,6 +847,10 @@ class IQ2_XXS(__Quant, qtype=GGMLQuantizationType.IQ2_XXS):
         b"608400854685948509864086608602880489118a0490109024904090a1901691"
         b"8091459200942294449451958198209902a050a085a009a100a218a450a804a9"
     )
+
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -856,6 +921,10 @@ class IQ2_XS(__Quant, qtype=GGMLQuantizationType.IQ2_XS):
         b"02a008a00aa020a02aa0a0a051a159a1a6a100a202a208a22aa280a2a0a240a4"
         b"95a465a698a60aa820a822a828a8a0a8a8a804a984a986a928aa2aaa91aaaaaa"
     )
+
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -960,6 +1029,10 @@ class IQ2_S(__Quant, qtype=GGMLQuantizationType.IQ2_S):
     )
 
     @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+
+    @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         n_blocks = blocks.shape[0]
 
@@ -1012,6 +1085,10 @@ class IQ3_XXS(__Quant, qtype=GGMLQuantizationType.IQ3_XXS):
         b"6161176264623063366344640565526533660367216703700570077010703270"
         b"5270267140711272457252720073157333736073217441740075027524753076"
     )
+
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -1080,6 +1157,10 @@ class IQ3_S(__Quant, qtype=GGMLQuantizationType.IQ3_S):
         b"2070227036704070547062700271117124714371457101720472107216722172"
         b"3072517202733273357353730174057413742074507422754275027631760077"
     )
+
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -1253,6 +1334,10 @@ class IQ1_S(__Quant, qtype=GGMLQuantizationType.IQ1_S):
     delta = np.float32(0.125)
 
     @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+
+    @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         n_blocks = blocks.shape[0]
 
@@ -1285,6 +1370,10 @@ class IQ1_M(__Quant, qtype=GGMLQuantizationType.IQ1_M):
     delta = IQ1_S.delta
 
     # Okay *this* type is weird. It's the only one which stores the f16 scales in multiple parts.
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         n_blocks = blocks.shape[0]
@@ -1320,6 +1409,10 @@ class IQ4_NL(__Quant, qtype=GGMLQuantizationType.IQ4_NL):
     kvalues = (-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113)
 
     @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+
+    @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         n_blocks = blocks.shape[0]
 
@@ -1338,6 +1431,10 @@ class IQ4_NL(__Quant, qtype=GGMLQuantizationType.IQ4_NL):
 
 
 class IQ4_XS(__Quant, qtype=GGMLQuantizationType.IQ4_XS):
+    @classmethod
+    def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
         n_blocks = blocks.shape[0]

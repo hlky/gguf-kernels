@@ -8,6 +8,7 @@
 #include "dispatch_utils.h"
 
 #include "common.h"
+#include "dequantize.h"
 
 torch::Tensor ggml_dequantize(torch::Tensor W,  // quant weight
                               int64_t type, int64_t m, int64_t n,

@@ -57,6 +57,20 @@ def dequantize_blocks_BF16(blocks, block_size, type_size, dtype=None):
     return (blocks.view(torch.int16).to(torch.int32) << 16).view(torch.float32)
 
 # Legacy Quants #
+def dequantize_blocks_Q1_0(blocks, block_size, type_size, dtype=None):
+    n_blocks = blocks.shape[0]
+
+    d, qs = split_block_dims(blocks, 2)
+    d = d.view(torch.float16).to(dtype)
+
+    bits = qs.reshape((n_blocks, block_size // 8, 1)) >> torch.arange(
+        8, device=qs.device, dtype=torch.uint8
+    ).reshape((1, 1, 8))
+    bits = (bits & 0x01).reshape((n_blocks, block_size)).bool()
+
+    return torch.where(bits, d, -d)
+
+
 def dequantize_blocks_Q8_0(blocks, block_size, type_size, dtype=None):
     d, x = split_block_dims(blocks, 2)
     d = d.view(torch.float16).to(dtype)
@@ -279,8 +293,41 @@ def dequantize_blocks_IQ4_XS(blocks, block_size, type_size, dtype=None):
 
     return (dl * qs).reshape((n_blocks, -1))
 
+
+def dequantize_blocks_NVFP4(blocks, block_size, type_size, dtype=None):
+    n_blocks = blocks.shape[0]
+
+    d_bytes, qs = split_block_dims(blocks, 4)
+
+    x = d_bytes.to(torch.int32)
+    exp = (x >> 3) & 0x0F
+    man = (x & 0x07).to(torch.float32)
+    two = torch.tensor(2.0, device=blocks.device, dtype=torch.float32)
+    raw = torch.where(
+        exp == 0,
+        man * (2.0 ** -9),
+        (1.0 + man / 8.0) * torch.pow(two, exp.to(torch.float32) - 7.0),
+    )
+    d = torch.where((x == 0) | (x == 0x7F), 0.0, raw * 0.5)
+    d = d.to(dtype if dtype is not None else torch.float32).reshape((n_blocks, 4, 1))
+
+    qs = qs.reshape((n_blocks, 4, 8))
+    lo = (qs & 0x0F).to(torch.int64)
+    hi = (qs >> 4).to(torch.int64)
+    idx = torch.cat([lo, hi], dim=-1)
+
+    kvalues = torch.tensor(
+        [0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12],
+        device=blocks.device,
+        dtype=d.dtype,
+    )
+    vals = kvalues[idx]
+
+    return (d * vals).reshape((n_blocks, block_size))
+
 dequantize_functions = {
     gguf_np.GGMLQuantizationType.BF16: dequantize_blocks_BF16,
+    gguf_np.GGMLQuantizationType.Q1_0: dequantize_blocks_Q1_0,
     gguf_np.GGMLQuantizationType.Q8_0: dequantize_blocks_Q8_0,
     gguf_np.GGMLQuantizationType.Q5_1: dequantize_blocks_Q5_1,
     gguf_np.GGMLQuantizationType.Q5_0: dequantize_blocks_Q5_0,
@@ -293,4 +340,5 @@ dequantize_functions = {
     gguf_np.GGMLQuantizationType.Q2_K: dequantize_blocks_Q2_K,
     gguf_np.GGMLQuantizationType.IQ4_NL: dequantize_blocks_IQ4_NL,
     gguf_np.GGMLQuantizationType.IQ4_XS: dequantize_blocks_IQ4_XS,
+    gguf_np.GGMLQuantizationType.NVFP4: dequantize_blocks_NVFP4,
 }
