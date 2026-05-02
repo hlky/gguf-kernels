@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 from pathlib import Path
 import sys
+import struct
 
 import numpy as np
 import pytest
@@ -16,6 +17,7 @@ from scripts.build_libgguf import build_shared_lib, default_output_path
 
 
 REQUIRED_EXTENSION_FUNCTIONS = (
+    "load_imatrix",
     "quantize_requires_imatrix",
     "quantize_rows_raw",
     "row_size",
@@ -117,3 +119,63 @@ def test_libgguf_quantization_smoke(qtype: GGMLQuantizationType) -> None:
     assert dequantized.shape == rows.shape
     assert dequantized.dtype == np.float32
     assert np.isfinite(dequantized).all()
+
+
+def test_libgguf_quantize_rows_accepts_explicit_imatrix() -> None:
+    qtype = GGMLQuantizationType.IQ2_XXS
+    info = GGML_FORMAT_INFO[qtype]
+    rows = np.linspace(-1.5, 1.5, 3 * info.block_size, dtype=np.float32).reshape(3, info.block_size)
+    imatrix = np.linspace(0.5, 1.5, info.block_size, dtype=np.float32)
+
+    quantized = libgguf.quantize_rows(rows, qtype, imatrix=imatrix)
+    raw = libgguf.quantize_rows_raw(qtype, rows, rows.shape[0], rows.shape[1], imatrix)
+
+    assert np.array_equal(quantized.reshape(-1), np.frombuffer(raw, dtype=np.uint8))
+
+
+def test_libgguf_loads_legacy_imatrix(tmp_path: Path) -> None:
+    path = tmp_path / "imatrix.dat"
+    with path.open("wb") as f:
+        f.write(struct.pack("<i", 1))
+        name = b"blk.0.attn_q.weight"
+        values = np.array([2.0, 4.0, 6.0], dtype=np.float32)
+        f.write(struct.pack("<i", len(name)))
+        f.write(name)
+        f.write(struct.pack("<ii", 2, values.size))
+        f.write(values.tobytes())
+
+    imatrix = libgguf.load_imatrix(path)
+
+    assert set(imatrix) == {"blk.0.attn_q.weight"}
+    np.testing.assert_array_equal(imatrix["blk.0.attn_q.weight"], np.array([1.0, 2.0, 3.0], dtype=np.float32))
+
+
+def test_libgguf_loads_gguf_imatrix(tmp_path: Path) -> None:
+    path = tmp_path / "imatrix.gguf"
+    tensors = [
+        ("blk.0.attn_q.weight.in_sum2", (3, 2), np.array([2.0, 4.0, 6.0, 8.0, 12.0, 16.0], dtype=np.float32)),
+        ("blk.0.attn_q.weight.counts", (1, 2), np.array([2.0, 4.0], dtype=np.float32)),
+    ]
+
+    infos = bytearray()
+    data = bytearray()
+    for name, dims, values in tensors:
+        encoded = name.encode("utf-8")
+        offset = len(data)
+        infos += struct.pack("<Q", len(encoded)) + encoded
+        infos += struct.pack("<I", len(dims))
+        infos += struct.pack("<" + "Q" * len(dims), *dims)
+        infos += struct.pack("<IQ", 0, offset)
+        data += values.tobytes()
+
+    header = b"GGUF" + struct.pack("<IQQ", 3, len(tensors), 0)
+    padding = (-len(header) - len(infos)) % 32
+    path.write_bytes(header + infos + (b"\0" * padding) + data)
+
+    imatrix = libgguf.load_imatrix(path)
+
+    assert set(imatrix) == {"blk.0.attn_q.weight"}
+    np.testing.assert_array_equal(
+        imatrix["blk.0.attn_q.weight"],
+        np.array([1.0, 2.0, 3.0, 2.0, 3.0, 4.0], dtype=np.float32),
+    )

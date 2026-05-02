@@ -7,6 +7,7 @@ import atexit
 import numpy as np
 
 from . import _libgguf
+from .imatrix import load_imatrix
 
 
 def _qtype_value(qtype: int | Any) -> int:
@@ -46,7 +47,7 @@ def quantize_rows_raw(
     )
 
 
-def quantize_rows(data: np.ndarray, qtype: int | Any) -> np.ndarray:
+def quantize_rows(data: np.ndarray, qtype: int | Any, imatrix: Any | None = None) -> np.ndarray:
     rows = np.ascontiguousarray(data, dtype=np.float32)
     if rows.ndim == 0:
         raise ValueError("Expected an array with at least one dimension")
@@ -55,15 +56,17 @@ def quantize_rows(data: np.ndarray, qtype: int | Any) -> np.ndarray:
     n_rows = int(np.prod(rows.shape[:-1], dtype=np.int64)) if rows.ndim > 1 else 1
     n_per_row = int(rows.shape[-1])
 
-    if quantize_requires_imatrix(qtype_value):
-        imatrix = np.ascontiguousarray(
+    if imatrix is not None:
+        quant_weights = np.ascontiguousarray(imatrix, dtype=np.float32)
+    elif quantize_requires_imatrix(qtype_value):
+        quant_weights = np.ascontiguousarray(
             np.sum((rows * rows).reshape((-1, n_per_row)), axis=0, dtype=np.float32),
             dtype=np.float32,
         )
     else:
-        imatrix = None
+        quant_weights = None
 
-    raw = quantize_rows_raw(qtype_value, rows, n_rows, n_per_row, imatrix)
+    raw = quantize_rows_raw(qtype_value, rows, n_rows, n_per_row, quant_weights)
     bytes_per_row = row_size(qtype_value, n_per_row)
     return np.frombuffer(raw, dtype=np.uint8).reshape((*rows.shape[:-1], bytes_per_row)).copy()
 
@@ -74,6 +77,7 @@ __all__ = [
     "quantize_requires_imatrix",
     "quantize_rows",
     "quantize_rows_raw",
+    "load_imatrix",
     "row_size",
     "type_name",
     "type_size",

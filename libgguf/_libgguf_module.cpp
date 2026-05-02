@@ -163,6 +163,10 @@ static PyObject *py_quantize_rows_raw(PyObject *, PyObject *args, PyObject *kwar
       PyBuffer_Release(&src_view);
       return nullptr;
     }
+  }
+
+  if (has_imatrix)
+  {
     const uint64_t imatrix_required = (uint64_t)n_per_row * sizeof(float);
     if ((uint64_t)imatrix_view.len < imatrix_required)
     {
