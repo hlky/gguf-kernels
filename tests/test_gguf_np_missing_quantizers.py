@@ -9,7 +9,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import gguf_np
-from gguf_kernels.ggml_ref import has_ggml_reference, quantize_rows_with_ggml
+
+try:
+    import libgguf
+except ImportError:
+    libgguf = None
 
 
 MISSING_QTYPES = (
@@ -30,13 +34,13 @@ MISSING_QTYPES = (
 )
 
 
-@pytest.mark.skipif(not has_ggml_reference(), reason="libggml reference library is not available")
+@pytest.mark.skipif(libgguf is None, reason="libgguf package is not available")
 @pytest.mark.parametrize("qtype", MISSING_QTYPES)
-def test_missing_quantizers_match_ggml_reference(qtype: gguf_np.GGMLQuantizationType) -> None:
+def test_missing_quantizers_match_libgguf_reference(qtype: gguf_np.GGMLQuantizationType) -> None:
     block_size, _ = gguf_np.GGML_QUANT_SIZES[qtype]
     rows = np.linspace(-1.5, 1.5, 3 * block_size, dtype=np.float32).reshape(3, block_size)
 
-    expected = quantize_rows_with_ggml(rows, qtype)
+    expected = libgguf.quantize_rows(rows, qtype)
     quantized = gguf_np.quantize(rows, qtype)
     dequantized = gguf_np.dequantize(quantized, qtype)
 

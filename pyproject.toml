@@ -13,6 +13,3 @@ dependencies = []
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["gguf_kernels*"]
-
-[tool.setuptools.package-data]
-gguf_kernels = ["*.so", "*.dylib", "*.dll"]

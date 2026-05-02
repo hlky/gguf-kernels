@@ -13,7 +13,6 @@ from gguf_kernels.formats import (
     quant_shape_from_byte_shape,
     quant_shape_to_byte_shape,
 )
-from gguf_kernels.ggml_ref import quantize_rows_with_ggml
 
 
 # This is faster than np.vectorize and np.apply_along_axis because it works on more than one row at a time
@@ -44,8 +43,16 @@ class QuantError(Exception): ...
 _type_traits: dict[GGMLQuantizationType, type[__Quant]] = {}
 
 
-def _quantize_blocks_with_ggml(blocks: np.ndarray, qtype: GGMLQuantizationType) -> np.ndarray:
-    return quantize_rows_with_ggml(blocks, qtype)
+def _quantize_blocks_with_libgguf(blocks: np.ndarray, qtype: GGMLQuantizationType) -> np.ndarray:
+    try:
+        import libgguf
+    except ImportError as exc:
+        raise RuntimeError(
+            f"Quantization for {qtype.name} requires the separate `libgguf` package. "
+            "Install it with `python -m pip install -e libgguf --no-build-isolation`."
+        ) from exc
+
+    return libgguf.quantize_rows(blocks, qtype)
 
 
 def quantize(data: np.ndarray, qtype: GGMLQuantizationType) -> np.ndarray:
@@ -404,7 +411,7 @@ class Q8_0(__Quant, qtype=GGMLQuantizationType.Q8_0):
 class Q2_K(__Quant, qtype=GGMLQuantizationType.Q2_K):
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -435,7 +442,7 @@ class Q2_K(__Quant, qtype=GGMLQuantizationType.Q2_K):
 class Q3_K(__Quant, qtype=GGMLQuantizationType.Q3_K):
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -510,7 +517,7 @@ class Q4_K(__Quant, qtype=GGMLQuantizationType.Q4_K):
 
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -537,7 +544,7 @@ class Q4_K(__Quant, qtype=GGMLQuantizationType.Q4_K):
 class Q5_K(__Quant, qtype=GGMLQuantizationType.Q5_K):
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -568,7 +575,7 @@ class Q5_K(__Quant, qtype=GGMLQuantizationType.Q5_K):
 class Q6_K(__Quant, qtype=GGMLQuantizationType.Q6_K):
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -850,7 +857,7 @@ class IQ2_XXS(__Quant, qtype=GGMLQuantizationType.IQ2_XXS):
 
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -924,7 +931,7 @@ class IQ2_XS(__Quant, qtype=GGMLQuantizationType.IQ2_XS):
 
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -1030,7 +1037,7 @@ class IQ2_S(__Quant, qtype=GGMLQuantizationType.IQ2_S):
 
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -1088,7 +1095,7 @@ class IQ3_XXS(__Quant, qtype=GGMLQuantizationType.IQ3_XXS):
 
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -1160,7 +1167,7 @@ class IQ3_S(__Quant, qtype=GGMLQuantizationType.IQ3_S):
 
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -1335,7 +1342,7 @@ class IQ1_S(__Quant, qtype=GGMLQuantizationType.IQ1_S):
 
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -1372,7 +1379,7 @@ class IQ1_M(__Quant, qtype=GGMLQuantizationType.IQ1_M):
     # Okay *this* type is weird. It's the only one which stores the f16 scales in multiple parts.
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -1410,7 +1417,7 @@ class IQ4_NL(__Quant, qtype=GGMLQuantizationType.IQ4_NL):
 
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
@@ -1433,7 +1440,7 @@ class IQ4_NL(__Quant, qtype=GGMLQuantizationType.IQ4_NL):
 class IQ4_XS(__Quant, qtype=GGMLQuantizationType.IQ4_XS):
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
-        return _quantize_blocks_with_ggml(blocks, cls.qtype)
+        return _quantize_blocks_with_libgguf(blocks, cls.qtype)
 
     @classmethod
     def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:

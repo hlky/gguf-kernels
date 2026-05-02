@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=77.0.3,<81.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "libgguf"
+version = "0.1.0"
+description = "Standalone GGUF reference quantization bindings"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = ["numpy"]

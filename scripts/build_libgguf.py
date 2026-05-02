@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import shutil
+import sys
 
 from setuptools._distutils.ccompiler import new_compiler
 from setuptools._distutils.sysconfig import customize_compiler
@@ -10,37 +11,25 @@ from setuptools._distutils.sysconfig import customize_compiler
 
 def build_shared_lib(output: Path, build_dir: Path) -> Path:
     root = Path(__file__).resolve().parents[1]
-    vendor_root = root / "third_party" / "ggml_quant_ref"
 
     compiler = new_compiler()
     customize_compiler(compiler)
 
-    include_dirs = [
-        str(vendor_root / "include"),
-        str(vendor_root / "src"),
-        str(vendor_root / "src" / "ggml-cpu"),
-    ]
-
     compile_args = []
     link_args = []
     if compiler.compiler_type == "msvc":
-        compile_args.extend(["/O2", "/std:c11"])
+        compile_args.extend(["/O2", "/std:c++17"])
     else:
-        compile_args.extend(["-O3", "-std=c11", "-fPIC"])
+        compile_args.extend(["-O3", "-std=c++17", "-fPIC"])
         link_args.extend(["-lm"])
-
-    sources = [
-        str(root / "gguf_kernels" / "csrc" / "ggml_ref_shim.c"),
-        str(vendor_root / "src" / "ggml-quants.c"),
-    ]
 
     build_dir.mkdir(parents=True, exist_ok=True)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     objects = compiler.compile(
-        sources=sources,
+        sources=[str(root / "libgguf" / "libgguf.cpp")],
         output_dir=str(build_dir),
-        include_dirs=include_dirs,
+        include_dirs=[str(root / "libgguf")],
         macros=[("NDEBUG", "1")],
         extra_postargs=compile_args,
     )
@@ -54,15 +43,19 @@ def build_shared_lib(output: Path, build_dir: Path) -> Path:
 
 def default_output_path() -> Path:
     root = Path(__file__).resolve().parents[1]
-    compiler = new_compiler()
-    lib_name = compiler.library_filename("gguf_ggml_ref", lib_type="shared")
+    if sys.platform == "win32":
+        lib_name = "libgguf.dll"
+    elif sys.platform == "darwin":
+        lib_name = "libgguf.dylib"
+    else:
+        lib_name = "libgguf.so"
     return root / "gguf_kernels" / lib_name
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build the vendored GGML quantization reference shared library")
+    parser = argparse.ArgumentParser(description="Build the vendored libgguf C++ reference shared library")
     parser.add_argument("--output", type=Path, default=default_output_path(), help="Shared library output path")
-    parser.add_argument("--build-dir", type=Path, default=Path("build/ggml_ref"), help="Object file build directory")
+    parser.add_argument("--build-dir", type=Path, default=Path("build/libgguf"), help="Object file build directory")
     parser.add_argument("--clean", action="store_true", help="Delete the build directory before compiling")
     args = parser.parse_args()
 

@@ -1,9 +1,7 @@
 include setup.py
 include pyproject.toml
-include scripts/build_ggml_ref_lib.py
 
-recursive-include gguf_kernels *.py *.c *.cpp *.cu *.h *.so *.dylib *.dll
-recursive-include third_party/ggml_quant_ref *.h *.c *.md LICENSE
+recursive-include gguf_kernels *.py *.c *.cpp *.cu *.h
 
 global-exclude .ipynb_checkpoints
 global-exclude */.ipynb_checkpoints/*

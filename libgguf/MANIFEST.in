@@ -1,0 +1,3 @@
+include libgguf.cpp
+include libgguf.h
+include _libgguf_module.cpp
