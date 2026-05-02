@@ -115,5 +115,6 @@ The output includes timing, throughput, and effective bandwidth for each shape/f
 
 - Keep GGUF format metadata synchronized across `gguf_kernels/formats.py`, `gguf_np.py`, `gguf_pt.py`, and the CUDA dispatch code.
 - Use `gguf_np` and `libgguf` as correctness references before changing CUDA kernels.
+- Future imatrix work could collect llama.cpp-compatible importance vectors from Hugging Face Transformers by registering forward hooks on target linear layers, accumulating column-wise squared input activations over calibration data, and mapping HF module names/layouts back to GGUF tensor names.
 - Do not edit vendored `third_party/llama.cpp` files unless the change is explicitly about refreshing or comparing upstream reference behavior.
 - When adding a format, update `FORMAT_SUPPORT.md` and add focused tests for shape metadata, quantization/dequantization accuracy, and unsupported-path behavior where relevant.
