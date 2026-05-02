@@ -18,6 +18,11 @@ class BuildExt(build_ext):
 setup(
     packages=["libgguf"],
     package_dir={"libgguf": "."},
+    entry_points={
+        "console_scripts": [
+            "quantize-gguf=libgguf.quantize_gguf:main",
+        ],
+    },
     ext_modules=[
         Extension(
             "libgguf._libgguf",

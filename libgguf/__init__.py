@@ -8,6 +8,7 @@ import numpy as np
 
 from . import _libgguf
 from .imatrix import load_imatrix
+from .quantize import QuantResult, convert_to_gguf
 
 
 def _qtype_value(qtype: int | Any) -> int:
@@ -78,6 +79,8 @@ __all__ = [
     "quantize_rows",
     "quantize_rows_raw",
     "load_imatrix",
+    "QuantResult",
+    "convert_to_gguf",
     "row_size",
     "type_name",
     "type_size",
